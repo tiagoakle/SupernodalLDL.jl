@@ -1,0 +1,68 @@
+* SLP Lapack notes
+
+- Documentation: http://www.netlib.org/lapack/#_documentation
+- Naming conventions: http://www.netlib.org/lapack/lug/node24.html
+- Computational routines for linear equations:
+  http://www.netlib.org/lapack/lug/node38.html
+- C interface is called =LAPACKE=: http://www.netlib.org/lapack/lapacke.html
+
+** Table of codes for symmetric matrices
+
+| code | description                                              |
+|------+----------------------------------------------------------|
+| PB   | symmetric or Hermitian positive definite band            |
+| PO   | symmetric or Hermitian positive definite                 |
+| PP   | symmetric or Hermitian positive definite, packed storage |
+| PT   | symmetric or Hermitian positive definite tridiagonal     |
+| SB   | (real) symmetric band                                    |
+| SP   | symmetric, packed storage                                |
+| ST   | (real) symmetric tridiagonal                             |
+| SY   | symmetric                                                |
+
+** Factorization and solve routines
+
+- xyyTRF: factorize (obviously not needed for triangular matrices)
+- xyyTRS: use the factorization (or the matrix A itself if it is triangular) to
+  solve (2.5) by forward or backward substitution
+- xyyCONV: convert A given by TRF into L and D and vice-versa.
+
+** Thoughts
+
+- We are interested in =DSYTRF= and =DSYTRS= for factorization and solve
+  respectively.
+- Unfortunately, the result of =sub= in Julia cannot be reshaped!  At this point
+  we will not be able to easily call functions like =bkfact1!= on a =SubArray=
+  of the main element array
+- There are experimental packages (https://github.com/JuliaLang/ArrayViews.jl)
+  that may enable this
+- Need to write direct calls to LAPACK if we want to use the proposed data
+  structure
+
+** =DSYTRF=
+
+- See: http://www.netlib.org/lapack/explore-html/dd/df4/dsytrf_8f.html
+
+#+BEGIN_EXAMPLE
+ DSYTRF computes the factorization of a real symmetric matrix A using
+ the Bunch-Kaufman diagonal pivoting method.  The form of the
+ factorization is
+
+    A = U*D*U**T  or  A = L*D*L**T
+
+ where U (or L) is a product of permutation and unit upper (lower)
+ triangular matrices, and D is symmetric and block diagonal with
+ 1-by-1 and 2-by-2 diagonal blocks.
+
+ This is the blocked version of the algorithm, calling Level 3 BLAS.
+#+END_EXAMPLE
+
+** =DSYTRS=
+
+- See: http://www.netlib.org/lapack/explore-html/d0/d9a/dsytrs_8f.html
+- Note can handle multiple rhs in single call
+
+#+BEGIN_EXAMPLE
+ DSYTRS solves a system of linear equations A*X = B with a real
+ symmetric matrix A using the factorization A = U*D*U**T or
+ A = L*D*L**T computed by DSYTRF.
+#+END_EXAMPLE
