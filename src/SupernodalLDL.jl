@@ -504,3 +504,5 @@ function Solve{F}(front::Front{F},root::Supernode,p::Array{Int},B::StridedMatrix
     X = XPerm[invperm(p),:]
     X
 end
+
+end #End module
