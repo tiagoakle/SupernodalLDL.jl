@@ -1,3 +1,4 @@
+module SupernodalLDL
 # This module packages Jack Poulson's Supernodal Cholesky code 
 # from his Advanced Topics in Numerical Linear Algebra 
 # https://github.com/poulson/ATiNLA.
