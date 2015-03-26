@@ -52,14 +52,13 @@ end
 
 #Given a graph represented as an undirected adjacency list *g* 
 #  --possibly with edges leading outside its vertex set-- [1,...,g.vertices]
-#1- Partition the vertex set into 3 subsets L,R,S using Metis. 
+#1- Call Metis to partition the vertex set into 3 subsets L,R,S. 
 #2- Generate a permutation p such that p[i] for i in 1,...,|L| is in L,
 #   p[i] for i in |L|+1,...,|L|+|R| is in R and the remaining in S.
-#   and the inverse permutation p_inv
+#   Also generate the inverse permutation p_inv.
 #3- Generate adjacency lists for the subgraph induced by L and R 
 #  	*gL* and *gR*   
-#  generate a permutation p and inverse permutation p_inv such that 
-#
+
 function bisect(g)
     n = length(g.vertices)
     gPruned = simple_adjlist(n,is_directed=false)
@@ -106,22 +105,34 @@ function bisect(g)
     gL, gR, p, p_inv
 end
 
+#This type represents a node in the elimination tree. 
 type Supernode
     start::Int         # first index of this supernode
     size::Int          # number of indices in this supernode
-    struct::Array{Int} # factored structure
+    struct::Array{Int} # Indices of the nonzero rows below the diagonal block 
+					   # in the factored structure.
     
     children::Array{Supernode}
     has_parent::Bool
     parent::Supernode
-    
+	
+	#This constructor recursively partitions
+	#the adjacency graph *g*, and generates the 
+	#fill reducing permutation, the supernodes and 
+	#the supernode elimination tree.
+	#g: is the adjacency list of the supernode.
+	#vertices: is a list of nodes that belong to the supernode
+	#start: is the first index in the supernode
+	#parent: is the supernode that is a parent of this one in 
+	#	 	the elimination tree.
     function Supernode(g,indices,start=1,parent=nothing)
         this = new()
         this.has_parent = (parent != nothing)
         if parent != nothing
             this.parent = parent
         end
-        
+       	
+		#TODO Remove this structure and use something more efficient
         struct_set = Set{Int}()
         
         # Check if this diagonal block is small enough to treat as dense
@@ -129,7 +140,8 @@ type Supernode
         if size <= leafSize
             this.start = start
             this.size = size
-            # Push in the original structure
+            # Put the indices of all the nonzero rows of this supernode 
+			#into the set
             for s=1:this.size
                 for jSub in g.adjlist[s]
                     if jSub > this.size
@@ -138,23 +150,36 @@ type Supernode
                 end
             end
             this.children = Array(Supernode,0)
-        else
+		else #This supernode is large enough to partition.
             ind_copy = copy(indices)
+
+			#TODO replace with a call to metis with no Graphs...
+   			#Call the bisection method in Metis         
             
-            gL, gR, p, p_inv = bisect(g)
+			gL, gR, p, p_inv = bisect(g)
+
             sizeL = length(gL.vertices)
             sizeR = length(gR.vertices)
             this.start = start + sizeL + sizeR
             this.size = size - (sizeL+sizeR)
-            
-            indL = sub(indices,1:sizeL)
+					
+			#Permute the indices vector into the order L,R,S
+			for k=1:size #this.size and size are different! this.size is sizeS
+                indices[k] = ind_copy[p[k]]
+            end
+		
+          	#indL,indR,indS are views into the permuted indices vector
+			indL = sub(indices,1:sizeL)
             indR = sub(indices,sizeL+1:sizeL+sizeR)
             indS = sub(indices,sizeL+sizeR+1:size)
-            for k=1:this.size
-                indS[k] = ind_copy[p[sizeL+sizeR+k]]
-            end
+			
+			#Allocate the children structures and recurse
+            this.children = Array(Supernode,2)
+            this.children[1] = Supernode(gL,indL,start,      this)
+            this.children[2] = Supernode(gR,indR,start+sizeL,this)
 
-            # Push in the original structure
+			# Place the indices of the nonzero rows of 
+			# the subset S into the struct_set. 
             for k=1:this.size
                 s = p[sizeL+sizeR+k]
                 for jSub in g.adjlist[s]
@@ -164,15 +189,6 @@ type Supernode
                 end
             end
             
-            this.children = Array(Supernode,2)
-            for k=1:sizeL
-                indL[k] = ind_copy[p[k]]
-            end
-            for k=1:sizeR
-                indR[k] = ind_copy[p[k+sizeL]]
-            end
-            this.children[1] = Supernode(gL,indL,start,      this)
-            this.children[2] = Supernode(gR,indR,start+sizeL,this)
         end
 
         # Perform the symbolic factorization now that the children are formed
@@ -197,15 +213,23 @@ type Supernode
     end
 end
 
+#Each instance of Front represents a supernode.
+#Before factorization it contains the data in the 
+#columns of the supernode. After factorization 
+#it contains the data of the factorized supernode. 
 type Front{F}
-    L::Array{F,2}
-    BR::Array{F,2}
-    
-    children::Array{Front{F}}
-    child_maps::Array{Any,1}
+    L::Array{F,2}   #Vector to store the diagonal block and the sub diagonal rows
+				
+    BR::Array{F,2}  #The outer product of the subdiagonal blocks is stored here 
+   	 
+    children::Array{Front{F}}  #Children in the subtree
+    child_maps::Array{Any,1}   #?
     has_parent::Bool
     parent::Front{F}
-    
+   	
+	#Second part of the symbolic analysis:
+	#This constructor recursively creates all the structures for the frontal
+	#matrices.
     function Front(APerm::SparseMatrixCSC{F},snode::Supernode,parent=nothing)
         this = new()
         this.has_parent = (parent != nothing)
@@ -214,8 +238,11 @@ type Front{F}
         end
         
         # Initialize this node of the matrix
-        structSize = length(snode.struct)
-        this.L = zeros(F,snode.size+structSize,snode.size)
+        structSize = length(snode.struct) #Number of non zero rows below the diagonal
+        this.L = zeros(F,snode.size+structSize,snode.size) #Allocate space for the factored column
+		
+		#Iterate over all the non zeros of A in the columns of this supernode and copy 
+		#into the matrix.
         for jSub=1:snode.size
             j = jSub + (snode.start-1)
             for k=APerm.colptr[j]:APerm.colptr[j+1]-1
@@ -223,9 +250,10 @@ type Front{F}
                 if i >= snode.start && i < snode.start+snode.size
                     iSub = i - (snode.start-1)
                     this.L[iSub,jSub] = APerm.nzval[k]
-                    this.L[jSub,iSub] = conj(APerm.nzval[k])
+                    #this.L[jSub,iSub] = conj(APerm.nzval[k])
                 elseif i >= snode.start+snode.size
-                    structRan = searchsorted(snode.struct,i)
+                    structRan = searchsorted(snode.struct,i) #Find the index of i in struct 
+															 #this corresponds to the row in the subdiagonal 														     #block.
                     if length(structRan) == 1
                         iSub = structRan[1] + snode.size
                         this.L[iSub,jSub] = APerm.nzval[k]
@@ -236,14 +264,18 @@ type Front{F}
                 end
             end
         end
-        this.BR = zeros(F,structSize,structSize)
+        this.BR = zeros(F,structSize,structSize) #Allocate the space for the outer products
         
-        # Handle the children
+        # Recursive call to allocate and copy the data to the children.
         num_children = length(snode.children)
         this.children = Array(Front{F},num_children)
         this.child_maps = Array{Any,1}[]
         for c=1:num_children
-            this.children[c] = Front{F}(APerm,snode.children[c],this)
+            this.children[c] = Front{F}(APerm,snode.children[c],this) #Recursive call.
+
+			#Build a mapping for each child that relates the number of the subdiagonal
+			#row in the child to the row in the LR structure of this node. 
+			#This is used for the extended adds during the Cholesky factorization.
             push!(this.child_maps,Array(Int,length(snode.children[c].struct)))
             for k=1:length(snode.children[c].struct)
                 i = snode.children[c].struct[k]
@@ -291,6 +323,7 @@ function Unpack{F}(front::Front{F},snode::Supernode)
     L
 end
 
+#Execute the cholesky factorization of the frontal matrix
 function Cholesky!{F}(front::Front{F})
     # Recurse on the children
     num_children = length(front.children)
