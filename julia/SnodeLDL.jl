@@ -26,7 +26,7 @@ function sparseToAdj(M)
     g
 end
 
-#Given an array parts of size n, where
+#Given an array *part* of size n, where
 #part[i] in {0,1,2} generate a permutation p 
 #such that part[p[i]] is [0,,...,0,1,...,1,2,...,2]
 function partToPerm(part)
@@ -50,6 +50,16 @@ function partToPerm(part)
     p
 end
 
+#Given a graph represented as an undirected adjacency list *g* 
+#  --possibly with edges leading outside its vertex set-- [1,...,g.vertices]
+#1- Partition the vertex set into 3 subsets L,R,S using Metis. 
+#2- Generate a permutation p such that p[i] for i in 1,...,|L| is in L,
+#   p[i] for i in |L|+1,...,|L|+|R| is in R and the remaining in S.
+#   and the inverse permutation p_inv
+#3- Generate adjacency lists for the subgraph induced by L and R 
+#  	*gL* and *gR*   
+#  generate a permutation p and inverse permutation p_inv such that 
+#
 function bisect(g)
     n = length(g.vertices)
     gPruned = simple_adjlist(n,is_directed=false)
