@@ -1,4 +1,4 @@
-# SupernodeLDL
+# SupernodalLDL
 
 Implementation of a supernodal factorization routine for sparse quasi-definite matrices. 
 The Cholesky version of this code was developed by Jack Poulson for his 
@@ -22,13 +22,4 @@ julia> Pkg.clone("https://github.com/tiagoakle/SupernodalLDL.jl.git")
 
 ```julia
 julia> using SupernodalLDL
-```
-
-## Current output
-
-```julia
-julia> using QuasiDefinite
-julia> QuasiDefinite.run()
-[1.4142135623730951 -0.7071067811865475
- -1.0 1.224744871391589]0
 ```
