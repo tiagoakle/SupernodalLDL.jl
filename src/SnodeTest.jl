@@ -1,6 +1,8 @@
-import Base: SparseMatrixCSC
-using Base.Test
-include("./SnodeLDL.jl")
+
+include("./MultifrontalQDLDL.jl")
+
+using Graphs, Base.Test, Base.SparseMatrixCSC, MultiFrontalQDLDL
+
 
 function laplacian2d(nx,ny)
     M = speye(nx*ny)
@@ -25,20 +27,19 @@ function laplacian2d(nx,ny)
     M
 end
 # The grid dimensions for the 2D finite-difference mesh
+
 nx=ny=40;
 n=nx*ny;
 # The maximum acceptable leaf-node size
 leafSize = 64;
-A = laplacian2d(nx,ny);
-pND, pND_inv = nodeND(A);
 
-n = A.m;
-g = sparseToAdj(A);
+A     = laplacian2d(nx,ny);
+g     = Graphs.simple_adjlist(A)
 
 # Ensure that Supernode is compiled before timing it
 nSmall = 10;
 ASmall = speye(nSmall,nSmall);
-gSmall = sparseToAdj(ASmall);
+gSmall = Graphs.simple_adjlist(ASmall)
 pSmall = [1:nSmall];
 rootSmall = Supernode(gSmall,pSmall);
 
@@ -53,16 +54,16 @@ frontSmall = Front{Float64}(ASmall[pSmall,pSmall],rootSmall);
 @time front = Front{Float64}(APerm,root);
 
 # Run Cholesky on the small example to ensure that it is compiled
-Cholesky!(frontSmall);
+QuasiDefiniteLDL!(frontSmall);
 
 # Time the actual sparse-direct Cholesky factorization
-@time Cholesky!(front);
+@time QuasiDefiniteLDL!(front);
 
 # Run Solve on a small example to ensure that it is compiled
 BSmall = randn(nSmall,10);
-Solve(frontSmall,rootSmall,pSmall,BSmall);
+SolveLDL(frontSmall,rootSmall,pSmall,BSmall);
 
 # Now time the actual instance of the solve
 B = randn(n,10);
-@time X = Solve(front,root,p,B);
+@time X = SolveLDL(front,root,p,B);
 println( "Relative residual norm $(norm(B-A*X)/vecnorm(B))) ");
