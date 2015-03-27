@@ -216,15 +216,15 @@ end
 
 #Each instance of Front represents a supernode.
 #Before factorization it contains the data in the 
-#columns of the supernode. After factorization 
-#it contains the data of the factorized supernode. 
+#columns of A that correspond to the supernode. After factorization 
+#it contains the data of the columns of R that correspond to the supernode. 
 type Front{F}
     L::Array{F,2}   #Vector to store the diagonal block and the sub diagonal rows
 				
     BR::Array{F,2}  #The outer product of the subdiagonal blocks is stored here 
    	 
     children::Array{Front{F}}  #Children in the subtree
-    child_maps::Array{Any,1}   #?
+    child_maps::Array{Any,1}   #Maps the rows of the child node to the rows in L
     has_parent::Bool
     parent::Front{F}
    	
@@ -272,7 +272,9 @@ type Front{F}
         this.children = Array(Front{F},num_children)
         this.child_maps = Array{Any,1}[]
         for c=1:num_children
-            this.children[c] = Front{F}(APerm,snode.children[c],this) #Recursive call.
+
+			#Execute the recursive call
+            this.children[c] = Front{F}(APerm,snode.children[c],this) 
 
 			#Build a mapping for each child that relates the number of the subdiagonal
 			#row in the child to the row in the LR structure of this node. 
@@ -362,6 +364,51 @@ function Cholesky!{F}(front::Front{F})
     BLAS.trsm!('R','L','T','N',1.,FTL,FBL)
     BLAS.syrk!('L','N',-1.,FBL,1.,FBR)
 end
+
+#Execute the quasi-definite LDLt factorization of the frontal matrix
+function LDLT!{F}(front::Front{F})
+    # Recurse on the children
+    num_children = length(front.children)
+    for c=1:num_children
+        LDLT!(front.children[c])
+    end
+    
+    m,nodeSize = size(front.L)
+    structSize = m - nodeSize
+    FTL = sub(front.L,1:nodeSize,1:nodeSize)
+    FBL = sub(front.L,nodeSize+1:m,1:nodeSize)
+    FBR = front.BR
+    
+    # Perform the extend-adds
+    for c=1:num_children
+        childStructSize = length(front.child_maps[c]);
+        for jChild=1:childStructSize
+            jSub = front.child_maps[c][jChild];
+            for iChild=jChild:childStructSize
+                iSub = front.child_maps[c][iChild];
+                value = front.children[c].BR[iChild,jChild];
+                if iSub <= nodeSize
+                    FTL[iSub,jSub] += value;
+                elseif jSub <= nodeSize
+                    FBL[iSub-nodeSize,jSub] += value;
+                else
+                    FBR[iSub-nodeSize,jSub-nodeSize] += value;
+                end
+            end
+        end
+        # TODO: Clear front.children[c].BR
+	end
+
+    QuasiDefinite.qdtrf!(string(:L)[1], FTL)
+    BLAS.trsm!('R','L','T','U',1.,FTL,FBL) #Solve with LA' = B', L lower triangular unit diagonal 
+	#TODO: This is no longer just the outer product, we need to divide by D^{1/2}
+	COLUMNSCALE....
+    BLAS.syrk!('L','N',-1.,FBL,1.,FBR)
+	#And then we need to divide the lower triangular part by D^{1/2}
+	COLUMNSCALE....
+end
+
+
 
 type RHSNode{F}
     T::Array{F,2}
